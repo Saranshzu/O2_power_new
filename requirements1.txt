@@ -1,0 +1,196 @@
+# render.yaml - Render deployment configuration
+services:
+  - type: web
+    name: dgr-kpi-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:application
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DEMO_MODE
+        value: "true"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHONPATH
+        value: .
+
+---
+
+# requirements.txt - Updated for production deployment
+Flask==2.3.3
+pandas==2.0.3
+numpy==1.24.3
+openpyxl==3.1.2
+gunicorn==21.2.0
+Werkzeug==2.3.7
+
+---
+
+# app.py - Main application file (use the render_deploy code above)
+# This should be your main application file
+
+---
+
+# Procfile - Alternative process file
+web: gunicorn --bind 0.0.0.0:$PORT app:application
+
+---
+
+# .gitignore - Files to ignore in deployment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Local development files
+.env
+.DS_Store
+*.swp
+*.swo
+
+# Excel files (if you don't want to include them)
+# Files/
+# *.xlsx
+# *.xlsm
+
+---
+
+# runtime.txt - Python version specification
+python-3.9.18
+
+---
+
+# gunicorn.conf.py - Gunicorn configuration
+import os
+
+# Server socket
+bind = f"0.0.0.0:{os.environ.get('PORT', 5000)}"
+backlog = 2048
+
+# Worker processes
+workers = int(os.environ.get('WEB_CONCURRENCY', 2))
+worker_class = "sync"
+worker_connections = 1000
+timeout = 30
+keepalive = 2
+
+# Restart workers
+max_requests = 1000
+max_requests_jitter = 50
+
+# Logging
+accesslog = "-"
+errorlog = "-"
+loglevel = "info"
+access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
+
+# Process naming
+proc_name = "dgr-kpi-dashboard"
+
+# Server mechanics
+preload_app = True
+daemon = False
+pidfile = None
+user = None
+group = None
+tmp_upload_dir = None
+
+# Security
+limit_request_line = 4094
+limit_request_fields = 100
+limit_request_field_size = 8190
+
+---
+
+# nginx.conf - Nginx configuration (if using custom nginx)
+server {
+    listen $PORT;
+    server_name _;
+    
+    client_max_body_size 20M;
+    
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+    
+    location /static/ {
+        alias /app/static/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+---
+
+# docker-entrypoint.sh - Optional Docker entrypoint
+#!/bin/bash
+set -e
+
+# Wait for dependencies if needed
+echo "Starting DGR KPI Dashboard..."
+
+# Run database migrations or setup if needed
+# python manage.py migrate
+
+# Start the application
+exec "$@"
+
+---
+
+# health_check.py - Health check endpoint
+"""
+Health check script for monitoring
+"""
+import requests
+import sys
+import os
+
+def check_health():
+    try:
+        url = os.environ.get('HEALTH_CHECK_URL', 'http://localhost:5000/api/health')
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'healthy':
+                print("✅ Health check passed")
+                return True
+            else:
+                print(f"❌ Health check failed: {data}")
+                return False
+        else:
+            print(f"❌ Health check failed with status: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Health check error: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    success = check_health()
+    sys.exit(0 if success else 1)
